@@ -20,6 +20,7 @@
     python环境下，双击study.bat
     
 版本亮点：
+
     1、python3环境
     2、无需python环境即可运行
     3、GUI可视化界面操作
