@@ -1,7 +1,7 @@
 # 21tb 时代光华 自动学习
 ps：需答题的课程，水平有限，暂不考虑
 
-v1.0
+
 >   原版来自https://github.com/iloghyr/21tb_robot
 >
 >   初级前端，因公司需要学分，发现了此程序，学了一个月python，尝试着自己写了一下
@@ -21,7 +21,9 @@ v1.0
     无python环境，双击study.exe
     
     python环境下，双击study.bat
-    
+
+v1.0
+
 版本亮点：
 
     1、python3环境
