@@ -31,6 +31,7 @@ class Tk(object):
         self.log.grid(row=3, column=1, columnspan=3, sticky='W')
         self.button = ''
 
+    # 单例
     @classmethod
     def instance(cls):
         key = '__instance'
@@ -41,6 +42,7 @@ class Tk(object):
             setattr(cls, key, instance)
             return instance
 
+    # 界面绘制
     def layout(self, username, password, remember, auto, click):
         self.username.set(username)
         self.password.set(password)
@@ -77,7 +79,7 @@ class Tk(object):
         self.log.insert('end', '%s ------- %s -------%s\n' %
                         (time.strftime('%Y-%m-%d %H:%M:%S'), value, '（异常）' if warn else ''))
 
-    # tk时间循环
+    # tk主界面启动
     def mainloop(self):
         self.tk.mainloop()
 
@@ -97,17 +99,17 @@ class Tk(object):
             self.log.insert('end', '%s , ' % (value,))
 
 
-# 全局函数-输出日志
-def logging():
-    instance = Tk.instance()
-    return instance
-
-
 # 多线程
 def t(func, args):
     tt = threading.Thread(target=func, args=args)
     tt.setDaemon(True)
     tt.start()
+
+
+# 全局函数-输出日志
+def logging():
+    instance = Tk.instance()
+    return instance
 
 
 # 输出日志
@@ -120,7 +122,7 @@ def test(value):
     t(logging().test, (value,))
 
 
-# 账号操作
+# 账户操作
 class Account(object):
     def __init__(self):
         self.count_down = 1
@@ -268,39 +270,103 @@ class Study(object):
     def get_my_course(self):
         log('进入我的课程')
         params = {
-            "courseType": "NEW_COURSE_CENTER",
-            "page.pageSize": "12",
-            "page.sortName": "STUDYTIME",
-            "page.pageNo": "1",
-            "courseStudyRecord.courseStatus": "STUDY",
-            "_": int(time.time())
+            'courseType': 'NEW_COURSE_CENTER',
+            'page.pageSize': '12',
+            'page.sortName': 'STUDYTIME',
+            'page.pageNo': '1',
+            'courseStudyRecord.courseStatus': 'STUDY',
+            '_': int(time.time())
         }
+        log('获取我的课程')
         r = self.http.get(self.account.api['my_course'], params)
         rows = r.get('rows')
         course_list = []
+        course_need_assess = []
+        # 获取课程列表
+        # 有学分的课程，即学完的课程，不管
+        # 没有学分的课程，看完视频的，需要评估获取学分
+        # 没看完视频的，继续看视频
+        # 看完视频，重新获取课程列表，重新执行此循环
         for i in rows:
-            # todo 待定，想法是直接获取进行中的课程，如果没有，则获取未进行的课程
-            # 如果有分数，即学完的课程
+            # 有分数的课程
             if i.get('getScoreTime') is not None:
                 continue
-            #     未学完的课程加入到列表
-            obj = {
-                'id': i.get('courseId'),
-                'name': i.get('courseName')
-            }
-            course_list.append(obj)
+            # 未学完的课程加入到列表
+            # 只获取可评估的课程
+            if i.get('stepToGetScore') == 'COURSE_EVALUATE':
+                print(int(i.get('currentStepRate')))
+                if int(i.get('currentStepRate')) == 100:
+                    # 视频看完需要评估
+                    log('有看完的课程，需要评估以获取学分')
+                    obj = {
+                        'id': i.get('courseId'),
+                        'name': i.get('courseName')
+                    }
+                    course_need_assess.append(obj)
+                    # todo 需要评估的课程，自动评估获取学分
+                else:
+                    # 需要看视频的课程
+                    log('有未看完的课程')
+                    obj = {
+                        'id': i.get('courseId'),
+                        'name': i.get('courseName')
+                    }
+                    course_list.append(obj)
+
+        #  无课就选，有课可看就看
         if not len(course_list):
-            log('无已选课程，准备选课')
+            log('无已选课程，选择新课程')
             self.select_course()
         else:
             log('获取课程（%s门）' % (len(course_list)))
-            # for course in course_list:
-            #     t(self.study, (course,))
+            t(self.study, (course_list[0],))
 
     # 选择新课程
     def select_course(self):
-        # 下个版本实装
-        pass
+        # 全部选课——课程评估——未选
+        log('获取课程中心')
+        get_course = {
+            'courseType': 'NEW_COURSE_CENTER',
+            'courseInfo.courseStatus': 'UNCHECKED',
+            'courseInfo.stepToGetScore': 'COURSE_EVALUATE',
+            'page.pageSize': '12',
+            'page.pageNo': '1',
+            'page.sortName': 'publishDate',
+            'courseStudyRecord.courseStatus': 'STUDY',
+            '_': int(time.time())
+        }
+        # 获取课程
+        r = self.http.get(self.account.api['course_center'], get_course)
+        # 课程列表
+        rows = r.get('rows')
+        # # todo test-start
+        # course_list = []
+        # for i in rows:
+        #     course_list.append({'id': i['courseId'], 'name': i['courseTitle']})
+        # log('新课程列表')
+        # test(course_list)
+        # # todo test-end
+        # 选择一个课程
+        course_id = rows[0]['courseId']
+        course_name = rows[0]['courseTitle']
+        # 确认选课
+        confirm = {
+            '_': int(time.time())
+        }
+        r_confirm = self.http.get(self.account.api['select_confirm'], confirm)
+        if r_confirm.get('success'):
+            select_course = {
+                'courseId': course_id,
+                'timeLimit': 'noLimit',
+                '_': int(time.time())
+            }
+            r_select = self.http.post(self.account.api['select_course'], select_course)
+            if r_select.get('status') == '200':
+                # 选课成功，重新获取课程列表，开始学习
+                if r_select.get('message') == '操作成功！！':
+                    log('选课成功： %s' % course_name)
+                    log('返回课程中心继续学习')
+                    self.get_my_course()
 
     # 开始学习
     def study(self, course):
@@ -313,9 +379,7 @@ class Study(object):
         item_list = self.get_course_item(course['id'])
         log('获取课程列表')
         # 展示课程
-        test(item_list)
-        for index, v in enumerate(item_list):
-            log('%s、%s' % (index + 1, v))
+        log('有子课 %s 门' % len(item_list))
         log('开始学习')
         for index, v in enumerate(item_list):
             sco_id = v['id']
@@ -330,12 +394,15 @@ class Study(object):
                 self.update_time_step()
                 ret = self.do_save(course['id'], sco_id, location)
                 if ret:
-                    log('%s：课程已完成 ' % course['name'])
+                    log('子课程已完成： %s' % v['name'])
                     break
                 log('学习%s秒后继续' % time_step)
                 time.sleep(time_step)
+        #   子课全部学完，重新获取课程列表
+        log('子课全部学完：%s' % course['name'])
+        self.get_my_course()
 
-    # 获取课程list
+    # 获取课程下的子课
     def get_course_item(self, course_id):
         url = self.account.api['course_item'] % course_id
         r = self.http.get(url)
@@ -365,8 +432,6 @@ class Study(object):
             'firstLoad': 'true'
         }
         r = self.http.post(self.account.api['select_resource'], params)
-        print('***********select_resource***************')
-        print(r)
         try:
             location = float(r['location'])
         except Exception as e:
@@ -375,8 +440,6 @@ class Study(object):
         select_check_api = self.account.api['select_check']
         api = select_check_api % (course_id, sco_id)
         re = self.http.post(api, json_ret=False)
-        print('***********select_check_api***************')
-        print(re)
         return location
 
     # 防挂机心跳
