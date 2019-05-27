@@ -1,12 +1,12 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
-
 import tkinter as tk
 from tkinter import scrolledtext
 import configparser
 import time
 import requests
 import threading
+import json
 
 # 账户配置文件
 account_file_name = 'account.conf'
@@ -19,7 +19,7 @@ class Tk(object):
 
     def __init__(self):
         self.tk = tk.Tk()
-        self.tk.title('study.exe---自动学习')
+        self.tk.title('自动学习 V1.0')
         self.tk.geometry('750x500')
         self.tk.resizable(width=False, height=False)
         self.time = tk.StringVar()
@@ -125,7 +125,7 @@ def test(value):
 # 账户操作
 class Account(object):
     def __init__(self):
-        self.count_down = 1
+        self.count_down = 10
         self.tk = Tk.instance()
         log('获取账户信息')
         self.account = configparser.ConfigParser()
@@ -214,6 +214,8 @@ class Study(object):
         self.tk = Tk.instance()
         self.account = Account()
         self.http = Http.instance()
+        # 课程评估判断,每次运行只运行一次，防止评估失败导致死循环
+        self.assess = True
 
     # 学习程序启动
     def start(self):
@@ -271,7 +273,7 @@ class Study(object):
         log('进入我的课程')
         params = {
             'courseType': 'NEW_COURSE_CENTER',
-            'page.pageSize': '12',
+            'page.pageSize': '100',
             'page.sortName': 'STUDYTIME',
             'page.pageNo': '1',
             'courseStudyRecord.courseStatus': 'STUDY',
@@ -294,25 +296,35 @@ class Study(object):
             # 未学完的课程加入到列表
             # 只获取可评估的课程
             if i.get('stepToGetScore') == 'COURSE_EVALUATE':
-                print(int(i.get('currentStepRate')))
-                if int(i.get('currentStepRate')) == 100:
-                    # 视频看完需要评估
-                    log('有看完的课程，需要评估以获取学分')
-                    obj = {
-                        'id': i.get('courseId'),
-                        'name': i.get('courseName')
-                    }
-                    course_need_assess.append(obj)
-                    # todo 需要评估的课程，自动评估获取学分
-                else:
-                    # 需要看视频的课程
-                    log('有未看完的课程')
-                    obj = {
-                        'id': i.get('courseId'),
-                        'name': i.get('courseName')
-                    }
-                    course_list.append(obj)
+                try:
+                    f = float(i.get('currentStepRate'))
+                    if f == 100.0:
+                        # 视频看完需要评估
+                        log('有看完的课程，需要评估以获取学分')
+                        obj = {
+                            'id': i.get('courseId'),
+                            'name': i.get('courseName')
+                        }
+                        course_need_assess.append(obj)
+                    else:
+                        # 需要看视频的课程
+                        log('有未看完的课程:%s' % i.get('courseName'))
+                        obj = {
+                            'id': i.get('courseId'),
+                            'name': i.get('courseName')
+                        }
+                        course_list.append(obj)
+                except Exception as e:
+                    log('currentStepRate异常：%s-%s' % (i.get('currentStepRate'), type(i.get('currentStepRate'))))
 
+        # 有评估先评估
+        if len(course_need_assess):
+            if self.assess:
+                log('优先评估获取学分')
+                t(self.get_score, (course_need_assess,))
+                return
+            else:
+                log('尝试评估失败，跳过评估，继续学习')
         #  无课就选，有课可看就看
         if not len(course_list):
             log('无已选课程，选择新课程')
@@ -320,6 +332,42 @@ class Study(object):
         else:
             log('获取课程（%s门）' % (len(course_list)))
             t(self.study, (course_list[0],))
+
+    # 评估以获取学分
+    def get_score(self, course_list):
+        for course in course_list:
+            course_id = course['id']
+            course_name = course['name']
+            log('开始评估：%s' % course_name)
+            # self.http.post('http://tianan-cyber.21tb.com/els/html/course/course.checkUserCanStudyCourse.do',{'courseId':{})
+            # self.http.post('http://tianan-cyber.21tb.com/els/html/studyCourse/studyCourse.checkUserScoInitComplete.do',course_id)
+            # self.http.post('http://tianan-cyber.21tb.com/els/html/courseInfo/courseinfo.checkOlineUrlHttp.do',course_id)
+            # self.http.post('http://tianan-cyber.21tb.com/els/html/courseInfo/courseinfo.checkMsUrl.do',course_id)
+
+            time.sleep(3)
+            param_star = {
+                'star': '5',
+                'courseId': course_id
+            }
+            r_star = self.http.post(self.account.api['save_star'], param_star)
+            if r_star.get('success'):
+                param_selection = {
+                    'willGoStep': 'COURSE_EVALUATE',
+                    'answers': json.dumps([
+                        {'name': 'f766d1ca2a2847e897bee3df17e2cec5', 'value': '447a40ed37cf41faa48e9d31960edf2e'},
+                        {'name': '9b62c4ea9e304256bc6bb8fab0dab0f1', 'value': 'b70124d460e34d2da4fdfff684b3add1'},
+                        {'name': '8f6de1d1f49b4f1483a8a5fceac6894b', 'value': '913239e0041a434aa350de208106d229'},
+                        {'name': '3ba4bdce9d4b48a6be84b1c62edd6a76', 'value': '808261399ffb4e0fa3a2e65e533170ac'},
+                        {'name': '703b4ee66a5c49729221f0395066c9df', 'value': ''}
+                    ]),
+                    'courseId': course_id,
+                    'courseType': 'NEW_COURSE_CENTER',
+                }
+                r_selection_choice = self.http.post(self.account.api['selection_choice'], param_selection)
+                log('评估成功！获得学分 %s' % r_selection_choice.get('courseScore'))
+        log('全部课程评估完毕，选择新课继续学习')
+        self.assess = False
+        self.get_my_course()
 
     # 选择新课程
     def select_course(self):
@@ -339,13 +387,6 @@ class Study(object):
         r = self.http.get(self.account.api['course_center'], get_course)
         # 课程列表
         rows = r.get('rows')
-        # # todo test-start
-        # course_list = []
-        # for i in rows:
-        #     course_list.append({'id': i['courseId'], 'name': i['courseTitle']})
-        # log('新课程列表')
-        # test(course_list)
-        # # todo test-end
         # 选择一个课程
         course_id = rows[0]['courseId']
         course_name = rows[0]['courseTitle']
@@ -460,6 +501,7 @@ class Study(object):
 
     # 保存进度条
     def do_save(self, course_id, sco_id, location):
+        log('保存进度条')
         params = {
             'courseId': course_id,
             'scoId': sco_id,
@@ -474,10 +516,11 @@ class Study(object):
                 r2 = self.http.post(self.account.api['select_resource'], params_res)
                 if r2.get('isComplete') == 'true':
                     return True
-            log('courseProgress:%s' % r.get('courseProgress', '-'))
-            log('completeRate:%s' % r.get('completeRate'))
-            log('completed:%s' % r.get('completed', '-'))
+            # log('courseProgress:%s' % r.get('courseProgress', '-'))
+            # log('completeRate:%s' % r.get('completeRate'))
+            # log('completed:%s' % r.get('completed', '-'))
             if r.get('completed', '-') == 'true':
+                log('保存进度条（成功）')
                 return True
         except Exception as e:
             log(e)
