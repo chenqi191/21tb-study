@@ -7,6 +7,7 @@ import time
 import requests
 import threading
 import json
+import os
 
 # 账户配置文件
 account_file_name = 'account.conf'
@@ -30,6 +31,12 @@ class Tk(object):
         self.log = scrolledtext.ScrolledText(width=93, height=29)
         self.log.grid(row=3, column=1, columnspan=3, sticky='W')
         self.button = ''
+        self.task_kill_label = tk.StringVar()
+        self.task_kill_count_down = 7200
+        self.task_kill = tk.StringVar()
+        self.task_kill.set(1)
+        self.shut_down = tk.StringVar()
+        self.shut_down.set(0)
 
     # 单例
     @classmethod
@@ -60,6 +67,10 @@ class Tk(object):
         tk.Label(text='记住密码：点击开始学习按钮后，自动保存本次输入的账号密码').grid(row=0, column=3, sticky='W')
         tk.Label(text='自动学习：下次打开study.exe，10秒后自动开始学习', ).grid(row=1, column=3, sticky='W')
         tk.Label(text='日志输出：').grid(row=3, column=0, sticky='en')
+        tk.Checkbutton(text='学2小时', variable=self.task_kill, command=self.task_kill_change).grid(row=2, column=3,
+                                                                                                 sticky='W')
+        tk.Checkbutton(text='自动关机', variable=self.shut_down).grid(row=2, column=3)
+        tk.Label(textvariable=self.task_kill_label).grid(row=2, column=3, sticky='E')
 
     # 自动学习倒计时
     def count_down(self, count_down):
@@ -97,6 +108,31 @@ class Tk(object):
                 self.log.insert('end', '%s , ' % (v,))
         else:
             self.log.insert('end', '%s , ' % (value,))
+
+    # 学2小时
+    def task_kill_change(self):
+        num = int(self.task_kill.get())
+        if num:
+            self.task_kill_count_down = 7200
+            self.do_task_kill()
+        else:
+            self.task_kill_label.set('')
+
+    def do_task_kill(self):
+        self.task_kill_count_down -= 1
+        self.task_kill_label.set('%s秒后停止学习' % self.task_kill_count_down)
+        if self.task_kill_count_down <= 0:
+            t(self.do_shut_down(), ())
+        else:
+            self.tk.after(1000, self.do_task_kill)
+
+    # 自动关机
+    def do_shut_down(self):
+        num = int(self.shut_down.get())
+        if num:
+            os.popen('shutdown -r -t 0')
+        else:
+            self.tk.quit()
 
 
 # 多线程
@@ -248,16 +284,13 @@ class Study(object):
             'corpCode': api['corpcode'],
             'loginName': username,
             'password': password,
-            'returnUrl': 'http://tianan-cyber.21tb.com/os/html/index.init.do',
-            'courseId': '',
-            'securityCode': '',
             'continueLogin': 'true',
-            'hyperEspCode': ''
         }
         r = self.http.post(api['login'], params=params)
         if self.http.get_session_id():
             log('%s 登录成功' % username)
             self.tk.time.set('学习中')
+            self.tk.task_kill_change()
             self.account.save_account()
             self.get_my_course()
         else:
