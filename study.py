@@ -20,7 +20,7 @@ class Tk(object):
 
     def __init__(self):
         self.tk = tk.Tk()
-        self.tk.title('自动学习 V1.0')
+        self.tk.title('自动学习 V1.3.1')
         self.tk.geometry('750x500')
         self.tk.resizable(width=False, height=False)
         self.time = tk.StringVar()
@@ -92,6 +92,7 @@ class Tk(object):
 
     # tk主界面启动
     def mainloop(self):
+        self.tk.iconify()
         self.tk.mainloop()
 
     # 退出程序
@@ -130,7 +131,7 @@ class Tk(object):
     def do_shut_down(self):
         num = int(self.shut_down.get())
         if num:
-            os.popen('shutdown -r -t 0')
+            os.popen('shutdown -r -t 0 -f')
         else:
             self.tk.quit()
 
